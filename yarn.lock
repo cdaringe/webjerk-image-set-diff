@@ -5288,9 +5288,9 @@ webidl-conversions@^4.0.0:
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/webidl-conversions/-/webidl-conversions-4.0.1.tgz#8015a17ab83e7e1b311638486ace81da6ce206a0"
 
-webjerk-image-set-diff-reporter@^0.0.2:
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/webjerk-image-set-diff-reporter/-/webjerk-image-set-diff-reporter-0.0.2.tgz#7b236940ba348a61d8f559fa958671c9fb7534f9"
+webjerk-image-set-diff-reporter@^0.0.3:
+  version "0.0.3"
+  resolved "https://registry.yarnpkg.com/webjerk-image-set-diff-reporter/-/webjerk-image-set-diff-reporter-0.0.3.tgz#7842cc92095ab6489523b629346f26f397ac65ab"
   dependencies:
     axios "^0.16.0"
     bluebird "^3.5.0"
