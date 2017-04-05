@@ -120,8 +120,8 @@ Object.assign(ImageSetDiffer.prototype, {
     console.log('no reference images found. setting reference images from run.')
     return Promise.all(this._runBasenames.map(tBasname => {
       return fs.copyAsync(
-        path.join(this.runDir, tBasname),
-        path.join(this.refDir, tBasname)
+        path.join(this.conf.runDir, tBasname),
+        path.join(this.conf.refDir, tBasname)
       )
     }))
     .then(() => { this._refBasenames = this._runBasenames })
