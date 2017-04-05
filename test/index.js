@@ -89,3 +89,28 @@ tape('case-missing-run-img', t => {
   .then(() => t.pass('teardown'))
   .catch(t.end)
 })
+
+tape('case-new-images', t => {
+  t.plan(4)
+  var testRoot = path.resolve(__dirname, 'case-new-images')
+  var refDir = path.join(testRoot, 'ref')
+  var runDir = path.join(testRoot, 'run')
+  var diffDir = `${runDir}-diff`
+  return Promise.resolve()
+  .then(() => fs.readdirAsync(refDir))
+  .then(files => t.equals(1, files.length, 'ref dir has one img'))
+  .then(() => ImageSetDiffer.factory({ refDir, runDir }).run())
+  .catch(err => {
+    t.equals(err.code, 'ENEWIMAGESFORBIDDEN', 'new images forbidden')
+  })
+  .then(() => ImageSetDiffer.factory({ refDir, runDir, allowNewImages: true }).run())
+  .then(() => fs.readdirAsync(refDir))
+  .then(files => {
+    t.equals(2, files.length, 'ref receieved new image')
+  })
+  .then(() => fs.removeAsync(diffDir))
+  .then(() => {
+    t.pass('teardown')
+  })
+  .catch(t.end)
+})

@@ -20,7 +20,8 @@ bb.promisifyAll(fs)
 function ImageSetDiffer (conf) {
   if (!conf) throw new Error('missing config')
   if (!conf.refDir || !conf.runDir) throw new Error('refDir and runDir are required')
-  if (!conf.diffDir) conf.diffDir = path.resolve(conf.runDir) + '-diff'
+  if (!conf.diffDir) conf.diffDir = `${path.resolve(conf.runDir)}-diff`
+  conf.allowNewImages = conf.allowNewImages || process.env.WEBJERK_ALLOW_NEW_IMAGES
   Object.assign(this, { conf })
 }
 ImageSetDiffer.factory = function (conf) { return new ImageSetDiffer(conf) }
@@ -71,6 +72,27 @@ Object.assign(ImageSetDiffer.prototype, {
     }
     return res
   },
+  handleNewImages () {
+    var { newImages } = this._imagePartitions
+    if (!newImages) throw new Error('missing image group')
+    if (!newImages.length) return Promise.resolve()
+    console.log(`${newImages.length} new images detected`)
+    if (!this.conf.allowNewImages) {
+      var err =  new Error([
+        'new images detected:',
+        newImages.map(img => `\t${img}\n`),
+        'use `allowNewImages` or WEBJERK_ALLOW_NEW_IMAGES to enable'
+      ].join('\n'))
+      err.code = 'ENEWIMAGESFORBIDDEN'
+    }
+    return Promise.all(this._runBasenames.map(tBasname => {
+      return fs.copyAsync(
+        path.join(this.conf.runDir, tBasname),
+        path.join(this.conf.refDir, tBasname)
+      )
+    }))
+    .then(() => { this._refBasenames = this._runBasenames })
+  },
   partitionImages () {
     var refBasenames = this._refBasenames
     var runBasenames = this._runBasenames
@@ -93,7 +115,7 @@ Object.assign(ImageSetDiffer.prototype, {
   },
   report (differences) {
     if (!Array.isArray(differences)) throw new Error('missing array of differences')
-    if (!this.conf.report) return
+    if (!this.conf.report) return Promise.resolve()
     var enriched = differences.map(diff => Object.assign({}, diff, {
       name: diff.basename,
       aFilename: path.join(this.conf.refDir, diff.basename),
@@ -107,17 +129,20 @@ Object.assign(ImageSetDiffer.prototype, {
     .then(() => this.partitionImages())
     .then(partitions => this.validateImagePartitions(partitions))
     .then(() => this.upsertReferenceImages())
+    .then(() => this.handleNewImages())
     .then(() => this.compare())
     .catch(err => {
       if (err.code !== 'EIMAGEDIFFS') throw err
       return this.report(err.differences)
-      .then(() => { throw err })
+      .then(() => {
+        throw err
+      })
     })
   },
   upsertReferenceImages () {
     var { missingImages, toCompare, newImages } = this._imagePartitions
     if (!missingImages || !toCompare || !newImages) throw new Error('missing image group')
-    if (toCompare.length || missingImages.length || newImages.length !== this._runBasenames.length) return
+    if (toCompare.length || missingImages.length || newImages.length !== this._runBasenames.length) return Promise.resolve()
     console.log('no reference images found. setting reference images from run.')
     return Promise.all(this._runBasenames.map(tBasname => {
       return fs.copyAsync(
