@@ -1,7 +1,9 @@
 'use strict'
 
 require('perish')
+var os = require('os')
 var tape = require('tape')
+var crypto = require('crypto')
 var ImageSetDiffer = require('../')
 var path = require('path').posix
 var fs = require('fs-extra')
@@ -95,11 +97,14 @@ tape('case-new-images', t => {
   var testRoot = path.resolve(__dirname, 'case-new-images')
   var refDir = path.join(testRoot, 'ref')
   var runDir = path.join(testRoot, 'run')
+  var newImageFilename = path.join(refDir, '2.png')
   var diffDir = `${runDir}-diff`
   return Promise.resolve()
   .then(() => fs.readdirAsync(refDir))
-  .then(files => t.equals(1, files.length, 'ref dir has one img'))
-  .then(() => ImageSetDiffer.factory({ refDir, runDir }).run())
+  .then(files => {
+    t.equals(1, files.length, 'ref dir has one img')
+  })
+  .then(() => ImageSetDiffer.factory({ refDir, runDir, allowNewImages: false }).run())
   .catch(err => {
     t.equals(err.code, 'ENEWIMAGESFORBIDDEN', 'new images forbidden')
   })
@@ -108,9 +113,38 @@ tape('case-new-images', t => {
   .then(files => {
     t.equals(2, files.length, 'ref receieved new image')
   })
+  .then(() => fs.removeAsync(newImageFilename))
   .then(() => fs.removeAsync(diffDir))
   .then(() => {
     t.pass('teardown')
   })
-  .catch(t.end)
+  .then(t.end, t.end)
+})
+
+tape('case-approve-changes', t => {
+  t.plan(3)
+  var testRoot = path.resolve(__dirname, 'case-unhappy-matches') // YES, we will approve the unhappy matches
+  var refDir = path.join(testRoot, 'ref')
+  var runDir = path.join(testRoot, 'run')
+  var tempRef = path.join(os.tmpdir(), '1.png')
+  var refFile = path.join(refDir, '1.png')
+  var runFile = path.join(runDir, '1.png')
+  var diffDir = `${runDir}-diff`
+  var checksum = str => crypto.createHash('sha256').update(str, 'utf8').digest('hex')
+
+  return Promise.resolve()
+  .then(() => fs.copyAsync(refFile, tempRef)) // backup original ref image
+  .then(() => Promise.all([fs.readFileAsync(refFile), fs.readFileAsync(runFile)]))
+  .then(([refData, runData]) => {
+    t.notEquals(checksum(refData), checksum(runData), 'checksums not initially equal (e.g. images are different)')
+  })
+  .then(() => ImageSetDiffer.factory({ refDir, runDir, approveChanges: true }).run())
+  .then(() => Promise.all([fs.readFileAsync(refFile), fs.readFileAsync(runFile)]))
+  .then(([refData, runData]) => {
+    t.equals(checksum(refData), checksum(runData), 'checksums equal after approval')
+  })
+  .then(() => fs.copyAsync(tempRef, refFile)) // restore original ref file
+  .then(() => fs.removeAsync(diffDir))
+  .then(() => t.pass('teardown'))
+  .then(t.end, t.end)
 })

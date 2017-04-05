@@ -5,23 +5,26 @@ var BlinkDiff = require('blink-diff')
 var reporter = require('webjerk-image-set-diff-reporter')
 var intersection = require('lodash/intersection')
 var without = require('lodash/without')
+var isNil = require('lodash/isNil')
 var fs = require('fs-extra')
 var bb = require('bluebird')
 bb.promisifyAll(fs)
 
 /**
  * executes an image diff test workflow
+ * @class ImageSetDiffer
  * @param {*} conf
  * @param {string} conf.refDir folder of reference images. relative or absolute
  * @param {string} conf.runDir folder of test run images. relative or absolute
- * @param {boolean} conf.allow
- * @returns {Promise}
+ * @param {boolean} [conf.allowNewImages] allows new images to enter into the reference set. defaults to true
+ * @param {boolean} [conf.approveChanges] updates ref images to match run images
  */
 function ImageSetDiffer (conf) {
   if (!conf) throw new Error('missing config')
   if (!conf.refDir || !conf.runDir) throw new Error('refDir and runDir are required')
   if (!conf.diffDir) conf.diffDir = `${path.resolve(conf.runDir)}-diff`
-  conf.allowNewImages = conf.allowNewImages || process.env.WEBJERK_ALLOW_NEW_IMAGES
+  if (isNil(conf.allowNewImages)) conf.allowNewImages = process.env.WEBJERK_ALLOW_NEW_IMAGES === undefined ? true : !!process.env.WEBJERK_ALLOW_NEW_IMAGES
+  if (isNil(conf.approveChanges)) conf.approveChanges = process.env.WEBJERK_APPROVE_CHANGES === undefined ? false : !!process.env.WEBJERK_APPROVE_CHANGES
   Object.assign(this, { conf })
 }
 ImageSetDiffer.factory = function (conf) { return new ImageSetDiffer(conf) }
@@ -61,6 +64,12 @@ Object.assign(ImageSetDiffer.prototype, {
     ))
     .then(this._handleCompareResults)
   },
+  _copyRunImagesToRefImages () {
+    return Promise.all(this._runBasenames.map(tBasname => {
+      return fs.copyAsync(path.join(this.conf.runDir, tBasname), path.join(this.conf.refDir, tBasname))
+    }))
+    .then(() => { this._refBasenames = this._runBasenames })
+  },
   _handleCompareResults (res) {
     var errors = res.filter(r => r instanceof Error)
     if (errors.length) {
@@ -72,20 +81,21 @@ Object.assign(ImageSetDiffer.prototype, {
     }
     return res
   },
-  handleNewImages () {
+  _handleNewImages () {
     var { newImages } = this._imagePartitions
     if (!newImages) throw new Error('missing image group')
     if (!newImages.length) return Promise.resolve()
     console.log(`${newImages.length} new images detected`)
     if (!this.conf.allowNewImages) {
-      var err =  new Error([
+      var err = new Error([
         'new images detected:',
         newImages.map(img => `\t${img}\n`),
         'use `allowNewImages` or WEBJERK_ALLOW_NEW_IMAGES to enable'
       ].join('\n'))
       err.code = 'ENEWIMAGESFORBIDDEN'
+      throw err
     }
-    return Promise.all(this._runBasenames.map(tBasname => {
+    return Promise.all(newImages.map(tBasname => {
       return fs.copyAsync(
         path.join(this.conf.runDir, tBasname),
         path.join(this.conf.refDir, tBasname)
@@ -93,7 +103,11 @@ Object.assign(ImageSetDiffer.prototype, {
     }))
     .then(() => { this._refBasenames = this._runBasenames })
   },
-  partitionImages () {
+  _maybeApproveChanges () {
+    if (this.conf.approveChanges) return this._copyRunImagesToRefImages()
+    return Promise.resolve()
+  },
+  _partitionImageBasenames () {
     var refBasenames = this._refBasenames
     var runBasenames = this._runBasenames
     var missingImages = without.apply(null, [refBasenames].concat(runBasenames))
@@ -126,10 +140,10 @@ Object.assign(ImageSetDiffer.prototype, {
   run () {
     return bb.resolve()
     .then(() => this.readTestState())
-    .then(() => this.partitionImages())
+    .then(() => this._partitionImageBasenames())
     .then(partitions => this.validateImagePartitions(partitions))
     .then(() => this.upsertReferenceImages())
-    .then(() => this.handleNewImages())
+    .then(() => this._maybeApproveChanges())
     .then(() => this.compare())
     .catch(err => {
       if (err.code !== 'EIMAGEDIFFS') throw err
@@ -140,24 +154,22 @@ Object.assign(ImageSetDiffer.prototype, {
     })
   },
   upsertReferenceImages () {
-    var { missingImages, toCompare, newImages } = this._imagePartitions
-    if (!missingImages || !toCompare || !newImages) throw new Error('missing image group')
-    if (toCompare.length || missingImages.length || newImages.length !== this._runBasenames.length) return Promise.resolve()
+    var { newImages } = this._imagePartitions
+    if (!newImages) throw new Error('missing image group')
+    if (this._refBasenames.length) {
+      // reference images are already in place. handle updates
+      if (newImages.length) return this._handleNewImages()
+      return Promise.resolve()
+    }
     console.log('no reference images found. setting reference images from run.')
-    return Promise.all(this._runBasenames.map(tBasname => {
-      return fs.copyAsync(
-        path.join(this.conf.runDir, tBasname),
-        path.join(this.conf.refDir, tBasname)
-      )
-    }))
-    .then(() => { this._refBasenames = this._runBasenames })
+    return this._copyRunImagesToRefImages()
   },
   validateImagePartitions ({ missingImages, toCompare, newImages }) {
     if (!missingImages || !toCompare || !newImages) throw new Error('missing image group')
     if (missingImages.length) {
       var err = new Error([
         `missing images:\n\t${missingImages.join('\n\t')}`,
-        'if these images are no longer required, please remove them from the reference set'
+        'if these images are no longer required, please remove them from the reference set.'
       ].join('\n'))
       err.code = 'EMISSINGIMAGES'
       throw err
