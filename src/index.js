@@ -111,6 +111,7 @@ Object.assign(ImageSetDiffer.prototype, {
     .catch(err => {
       if (err.code !== 'EIMAGEDIFFS') throw err
       return this.report(err.differences)
+      .then(() => { throw err })
     })
   },
   upsertReferenceImages () {
