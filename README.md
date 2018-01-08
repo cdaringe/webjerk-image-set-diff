@@ -1,5 +1,7 @@
 # webjerk-image-set-diff
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/cdaringe/webjerk-image-set-diff.svg)](https://greenkeeper.io/)
+
 compares two sets of images.  image sets are PNGs derived from from a user provided folders, `refDir` & `runDir`.  images are compared by basename. that is, `/refDir/test-image.png` would be compared to `/runDir/test-image.png`.
 
 the comparisons use [blink-diff](https://github.com/yahoo/blink-diff) to compare images.
